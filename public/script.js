@@ -6,11 +6,11 @@ const messageDiv = document.getElementById('message');
 const submitBtn = document.getElementById('submit-btn');
 const contactSelect = document.getElementById('contact-select');
 
-let currentDate = null;       // выбранная дата YYYY-MM-DD
-let selectedSlotId = null;    // id выбранного слота
-let selectedSlotLabel = null; // строка для вывода
+let currentDate = null;
+let selectedSlotId = null;
+let selectedSlotLabel = null;
 
-// Переключение WhatsApp/Telegram визуально
+// Переключение WhatsApp / Telegram
 if (contactSelect) {
   contactSelect.addEventListener('click', (e) => {
     const pill = e.target.closest('.radio-pill');
@@ -33,7 +33,6 @@ function weekdayRu(dateStr) {
   return ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'][dt.getDay()];
 }
 
-// Рисуем плашки дней
 function renderDays(dates) {
   daysStrip.innerHTML = '';
   if (!dates.length) {
@@ -43,25 +42,28 @@ function renderDays(dates) {
     }
     return;
   }
+
   dates.forEach((date, idx) => {
     const pill = document.createElement('div');
     pill.className = 'day-pill';
-    if (idx === 0) {
-      pill.classList.add('active');
-      currentDate = date;
-    }
     pill.dataset.date = date;
     pill.innerHTML = `
       <span class="weekday">${weekdayRu(date)}</span>
       <span class="date">${formatDateLabel(date)}</span>
     `;
+    if (idx === 0) {
+      pill.classList.add('active');
+      currentDate = date;
+    }
     pill.addEventListener('click', () => {
       currentDate = date;
       selectedSlotId = null;
       selectedSlotLabel = null;
-      selectedSlotDiv.textContent = 'Слот ещё не выбран.';
-      messageDiv.textContent = '';
-      messageDiv.className = '';
+      if (selectedSlotDiv) selectedSlotDiv.textContent = 'Слот ещё не выбран.';
+      if (messageDiv) {
+        messageDiv.textContent = '';
+        messageDiv.className = '';
+      }
       document.querySelectorAll('.day-pill').forEach(p => p.classList.remove('active'));
       pill.classList.add('active');
       loadSlotsForDay(date);
@@ -70,7 +72,6 @@ function renderDays(dates) {
   });
 }
 
-// Загружаем список дат и первый день
 async function initCalendar() {
   try {
     const res = await fetch('/api/dates');
@@ -78,6 +79,8 @@ async function initCalendar() {
     renderDays(dates);
     if (dates.length) {
       await loadSlotsForDay(dates[0]);
+    } else {
+      slotsContainer.innerHTML = '';
     }
   } catch (err) {
     console.error(err);
@@ -88,17 +91,18 @@ async function initCalendar() {
   }
 }
 
-// Загружаем слоты конкретного дня
 async function loadSlotsForDay(date) {
   slotsContainer.innerHTML = 'Загрузка...';
   if (slotsEmpty) {
     slotsEmpty.style.display = 'none';
     slotsEmpty.textContent = '';
   }
+
   try {
     const res = await fetch('/api/slots?date=' + encodeURIComponent(date));
     const slots = await res.json();
     slotsContainer.innerHTML = '';
+
     if (!slots.length) {
       if (slotsEmpty) {
         slotsEmpty.style.display = 'block';
@@ -106,6 +110,7 @@ async function loadSlotsForDay(date) {
       }
       return;
     }
+
     slots.forEach(s => {
       const [, timeStr] = s.time.split(' ');
       const btn = document.createElement('button');
@@ -114,9 +119,17 @@ async function loadSlotsForDay(date) {
       btn.addEventListener('click', () => {
         selectedSlotId = s.id;
         selectedSlotLabel = s.time;
-        selectedSlotDiv.textContent = `Вы выбрали: ${s.time}`;
-        messageDiv.textContent = '';
-        messageDiv.className = '';
+
+        if (selectedSlotDiv) {
+          selectedSlotDiv.textContent = `Вы выбрали: ${s.time}`;
+        }
+        if (messageDiv) {
+          messageDiv.textContent = '';
+          messageDiv.className = '';
+        }
+
+        document.querySelectorAll('.slot-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
       });
       slotsContainer.appendChild(btn);
     });
@@ -130,7 +143,6 @@ async function loadSlotsForDay(date) {
   }
 }
 
-// Отправка брони
 if (submitBtn) {
   submitBtn.addEventListener('click', async () => {
     if (!selectedSlotId) {
@@ -160,10 +172,11 @@ if (submitBtn) {
         body: JSON.stringify({ slotId: selectedSlotId, name, email, phone, contactMethod })
       });
       const data = await res.json();
+
       if (data.success) {
         messageDiv.textContent = data.message;
         messageDiv.className = 'success';
-        await initCalendar(); // перегрузим даты/слоты
+        await initCalendar();
         document.getElementById('name').value = '';
         document.getElementById('email').value = '';
         document.getElementById('phone').value = '';
