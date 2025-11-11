@@ -25,10 +25,24 @@ if (SMTP_HOST && SMTP_PORT && SMTP_USER && SMTP_PASS) {
   transporter = nodemailer.createTransport({
     host: SMTP_HOST,
     port: Number(SMTP_PORT),
-    secure: Number(SMTP_PORT) === 465,
-    auth: { user: SMTP_USER, pass: SMTP_PASS }
+    secure: Number(SMTP_PORT) === 465, // для 465 — true, для 587 — false
+    auth: {
+      user: SMTP_USER,
+      pass: SMTP_PASS
+    },
+    tls: {
+      // иногда помогает, если хост цепляется с кастомным сертификатом
+      rejectUnauthorized: false
+    }
   });
-  console.log('Email transporter настроен');
+
+  transporter.verify((err, success) => {
+    if (err) {
+      console.error('Email transporter verify error:', err.message || err);
+    } else {
+      console.log('Email transporter настроен и готов отправлять письма');
+    }
+  });
 } else {
   console.log('Email не настроен: задайте SMTP_* переменные, чтобы отправлять письма');
 }
