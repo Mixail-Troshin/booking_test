@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Админка - записи на встречи</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 0 16px;
+    }
+    h1 { font-size: 24px; margin-bottom: 12px; }
+    #login { margin-bottom: 16px; }
+    input {
+      padding: 6px 8px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+      font-size: 14px;
+      margin-right: 6px;
+    }
+    button {
+      padding: 6px 10px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      background: #007bff;
+      color: white;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+      font-size: 13px;
+    }
+    th, td {
+      border: 1px solid #eee;
+      padding: 6px;
+    }
+    th {
+      background: #f7f7f7;
+      text-align: left;
+    }
+    .tag {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 10px;
+      font-size: 11px;
+      color: #fff;
+    }
+    .free { background: #28a745; }
+    .booked { background: #dc3545; }
+    #message {
+      margin-top: 8px;
+      font-size: 13px;
+      color: #c00;
+    }
+  </style>
+</head>
+<body>
+  <h1>Админка — записи на встречи</h1>
+  <div id="login">
+    <input id="key-input" type="password" placeholder="Ключ администратора">
+    <button onclick="loadSlots()">Войти / Обновить</button>
+    <div id="message"></div>
+  </div>
+
+  <table id="slots-table" style="display:none;">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Время</th>
+        <th>Статус</th>
+        <th>Имя</th>
+        <th>Email</th>
+      </tr>
+    </thead>
+    <tbody id="slots-body"></tbody>
+  </table>
+
+  <script>
+    async function loadSlots() {
+      const key = document.getElementById('key-input').value.trim();
+      const msg = document.getElementById('message');
+      const table = document.getElementById('slots-table');
+      const body = document.getElementById('slots-body');
+
+      msg.textContent = '';
+      table.style.display = 'none';
+      body.innerHTML = '';
+
+      if (!key) {
+        msg.textContent = 'Введите ключ администратора.';
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/admin/slots?key=' + encodeURIComponent(key));
+        const data = await res.json();
+
+        if (!data.success) {
+          msg.textContent = data.message || 'Ошибка доступа';
+          return;
+        }
+
+        const slots = data.slots;
+        if (!slots.length) {
+          msg.textContent = 'Слотов нет.';
+          return;
+        }
+
+        slots.forEach(s => {
+          const tr = document.createElement('tr');
+          const status = s.booked
+            ? '<span class="tag booked">Занят</span>'
+            : '<span class="tag free">Свободен</span>';
+          tr.innerHTML = `
+            <td>${s.id}</td>
+            <td>${s.time}</td>
+            <td>${status}</td>
+            <td>${s.name || ''}</td>
+            <td>${s.email || ''}</td>
+          `;
+          body.appendChild(tr);
+        });
+
+        table.style.display = 'table';
+      } catch (err) {
+        console.error(err);
+        msg.textContent = 'Ошибка загрузки данных.';
+      }
+    }
+  </script>
+</body>
+</html>
