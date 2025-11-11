@@ -2,52 +2,21 @@ const express = require('express');
 const Database = require('better-sqlite3');
 const cors = require('cors');
 const path = require('path');
-const nodemailer = require('nodemailer');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // ===== ENV =====
 const ADMIN_KEY = process.env.ADMIN_KEY || 'changeme';
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@example.com';
-const FROM_EMAIL = process.env.FROM_EMAIL || 'no-reply@example.com';
-
-const SMTP_HOST = process.env.SMTP_HOST || '';
-const SMTP_PORT = process.env.SMTP_PORT || '';
-const SMTP_USER = process.env.SMTP_USER || '';
-const SMTP_PASS = process.env.SMTP_PASS || '';
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'mikhail.tr0shin@yandex.ru';
 
 const TELEMOST_TOKEN = process.env.TELEMOST_TOKEN || ''; // OAuth-токен Telemost
 
-// ===== EMAIL TRANSPORT =====
-let transporter = null;
-if (SMTP_HOST && SMTP_PORT && SMTP_USER && SMTP_PASS) {
-  transporter = nodemailer.createTransport({
-    host: SMTP_HOST,
-    port: Number(SMTP_PORT),
-    secure: Number(SMTP_PORT) === 465, // для 465 — true, для 587 — false
-    auth: {
-      user: SMTP_USER,
-      pass: SMTP_PASS
-    },
-    tls: {
-      // иногда помогает, если хост цепляется с кастомным сертификатом
-      rejectUnauthorized: false
-    }
-  });
+// PHP-почтовый шлюз (galaxytap.ru/mymail.php)
+const MAIL_ENDPOINT = process.env.MAIL_ENDPOINT || '';
+const MAIL_SECRET = process.env.MAIL_SECRET || '';
 
-  transporter.verify((err, success) => {
-    if (err) {
-      console.error('Email transporter verify error:', err.message || err);
-    } else {
-      console.log('Email transporter настроен и готов отправлять письма');
-    }
-  });
-} else {
-  console.log('Email не настроен: задайте SMTP_* переменные, чтобы отправлять письма');
-}
-
-// ===== APP MIDDLEWARE =====
+// ===== MIDDLEWARE =====
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -112,9 +81,137 @@ function ensureDefaultSlots() {
 }
 ensureDefaultSlots();
 
+// ===== ПОЧТА ЧЕРЕЗ PHP (galaxytap.ru/mymail.php) =====
+
+async function sendViaPhpMail({ toEmail, subject, text, html }) {
+  if (!MAIL_ENDPOINT || !MAIL_SECRET) {
+    console.log('PHP mail endpoint не настроен');
+    return false;
+  }
+  if (!toEmail) return false;
+
+  try {
+    const body = new URLSearchParams({
+      secret: MAIL_SECRET,
+      to: toEmail,
+      subject,
+      text,
+      html: html || ''
+    });
+
+    const resp = await fetch(MAIL_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body
+    });
+
+    const txt = await resp.text();
+
+    if (!resp.ok || txt.trim() !== 'OK') {
+      console.error('PHP mail error:', resp.status, txt);
+      return false;
+    }
+
+    console.log('PHP mail sent to', toEmail);
+    return true;
+  } catch (e) {
+    console.error('PHP mail exception:', e);
+    return false;
+  }
+}
+
+// Отправка писем при бронировании
+async function sendBookingEmails({ name, email, phone, slotTime, contactMethod, meetingUrl }) {
+  const safeName = name || 'клиент';
+  const linkBlock = meetingUrl
+    ? `<p><b>Ссылка на встречу:</b> <a href="${meetingUrl}">${meetingUrl}</a></p>`
+    : '';
+
+  const userSubject = 'Подтверждение записи на встречу';
+  const userHtml = `
+    <h2>Вы записаны на встречу</h2>
+    <p>Здравствуйте, ${safeName}!</p>
+    <p><b>Дата и время:</b> ${slotTime}</p>
+    <p><b>Способ связи:</b> ${contactMethod}</p>
+    <p><b>Телефон:</b> ${phone}</p>
+    ${linkBlock}
+    <p>До встречи!</p>
+  `;
+
+  const adminSubject = 'Новая запись на встречу';
+  const adminHtml = `
+    <h2>Новая запись на встречу</h2>
+    <p><b>Имя:</b> ${safeName}</p>
+    <p><b>Email:</b> ${email}</p>
+    <p><b>Телефон:</b> ${phone}</p>
+    <p><b>Способ связи:</b> ${contactMethod}</p>
+    <p><b>Дата и время:</b> ${slotTime}</p>
+    ${linkBlock}
+  `;
+
+  await sendViaPhpMail({
+    toEmail: email,
+    subject: userSubject,
+    text: `Вы записаны на встречу ${slotTime}. ${meetingUrl ? 'Ссылка: ' + meetingUrl : ''}`,
+    html: userHtml
+  });
+
+  await sendViaPhpMail({
+    toEmail: ADMIN_EMAIL,
+    subject: adminSubject,
+    text:
+      `Новая запись на встречу ${slotTime}\n` +
+      `Имя: ${safeName}\nEmail: ${email}\nТелефон: ${phone}\n` +
+      (meetingUrl ? 'Ссылка: ' + meetingUrl : ''),
+    html: adminHtml
+  });
+}
+
+// Отправка напоминаний
+async function sendReminderEmails({ name, email, slotTime, meetingUrl }) {
+  const safeName = name || 'клиент';
+  const linkBlock = meetingUrl
+    ? `<p><b>Ссылка на встречу:</b> <a href="${meetingUrl}">${meetingUrl}</a></p>`
+    : '';
+
+  const subjectUser = 'Напоминание о встрече';
+  const htmlUser = `
+    <h2>Напоминание</h2>
+    <p>Здравствуйте, ${safeName}!</p>
+    <p>Через час у вас встреча:</p>
+    <p><b>${slotTime}</b></p>
+    ${linkBlock}
+  `;
+
+  const subjectAdmin = 'Напоминание о встрече с клиентом';
+  const htmlAdmin = `
+    <h2>Напоминание о встрече</h2>
+    <p>Через час встреча с ${safeName}.</p>
+    <p><b>${slotTime}</b></p>
+    ${linkBlock}
+  `;
+
+  await sendViaPhpMail({
+    toEmail: email,
+    subject: subjectUser,
+    text: `Напоминание о встрече через час: ${slotTime} ${meetingUrl ? 'Ссылка: ' + meetingUrl : ''}`,
+    html: htmlUser
+  });
+
+  await sendViaPhpMail({
+    toEmail: ADMIN_EMAIL,
+    subject: subjectAdmin,
+    text: `Через час встреча с ${safeName} в ${slotTime} ${meetingUrl ? 'Ссылка: ' + meetingUrl : ''}`,
+    html: htmlAdmin
+  });
+}
+
 // ===== TELEMOST =====
 async function createTelemostConference() {
-  if (!TELEMOST_TOKEN) return null;
+  if (!TELEMOST_TOKEN) {
+    console.log('Telemost: TELEMOST_TOKEN не задан, пропускаем создание встречи');
+    return null;
+  }
 
   try {
     const resp = await fetch('https://cloud-api.yandex.net/v1/telemost-api/conferences', {
@@ -128,14 +225,15 @@ async function createTelemostConference() {
       })
     });
 
-    if (!resp.ok) {
-      const text = await resp.text();
-      console.error('Telemost create error:', resp.status, text);
-      return null;
+    if (resp.status === 201) {
+      const data = await resp.json();
+      console.log('Telemost: встреча создана', data.join_url);
+      return data.join_url || null;
     }
 
-    const data = await resp.json();
-    return data.join_url || null;
+    const text = await resp.text();
+    console.error('Telemost create error:', resp.status, text);
+    return null;
   } catch (e) {
     console.error('Telemost exception:', e);
     return null;
@@ -197,6 +295,7 @@ app.post('/api/book', async (req, res) => {
   // создаём Telemost
   const meetingUrl = await createTelemostConference();
 
+  // отмечаем слот
   const upd = db.prepare(`
     UPDATE slots
     SET booked = 1,
@@ -214,40 +313,19 @@ app.post('/api/book', async (req, res) => {
 
   const slotTime = slot.time;
 
-  // письма
-  if (transporter) {
-    const linkText = meetingUrl ? `\nСсылка на встречу: ${meetingUrl}` : '';
-    const userText =
-      `Вы записаны на встречу ${slotTime}.\n` +
-      `Мы свяжемся с вами в ${contactMethod} по номеру ${phone}.${linkText}`;
-
-    const adminText =
-      `Новая запись:\n` +
-      `Время: ${slotTime}\n` +
-      `Имя: ${name}\n` +
-      `Email: ${email}\n` +
-      `Телефон: ${phone}\n` +
-      `Способ связи: ${contactMethod}\n` +
-      (meetingUrl ? `Ссылка Telemost: ${meetingUrl}\n` : '');
-
-    transporter.sendMail({
-      from: FROM_EMAIL,
-      to: email,
-      subject: 'Подтверждение записи на встречу',
-      text: userText
-    }).catch(e => console.error('Mail user error:', e.message));
-
-    transporter.sendMail({
-      from: FROM_EMAIL,
-      to: ADMIN_EMAIL,
-      subject: 'Новая запись на встречу',
-      text: adminText
-    }).catch(e => console.error('Mail admin error:', e.message));
-  }
+  // отправляем письма через PHP-шлюз
+  await sendBookingEmails({
+    name,
+    email,
+    phone,
+    slotTime,
+    contactMethod,
+    meetingUrl
+  });
 
   res.json({
     success: true,
-    message: 'Вы успешно записаны!' + (meetingUrl ? ' Ссылка отправлена на почту.' : '')
+    message: 'Вы успешно записаны! Подтверждение отправлено на email.'
   });
 });
 
@@ -298,14 +376,11 @@ app.post('/api/admin/schedule', (req, res) => {
   res.json({ success: true, message: 'Расписание обновлено' });
 });
 
-// Напоминания за час (дергается кроном)
+// Напоминания за час (дергается кроном Render или любым scheduler)
 app.post('/api/admin/send-reminders', async (req, res) => {
   const { key } = req.body || {};
   if (key !== ADMIN_KEY) {
     return res.status(401).json({ success: false, message: 'Нет доступа' });
-  }
-  if (!transporter) {
-    return res.status(400).json({ success: false, message: 'SMTP не настроен' });
   }
 
   const now = new Date();
@@ -326,30 +401,14 @@ app.post('/api/admin/send-reminders', async (req, res) => {
     const dt = new Date(y, m - 1, d, hh, mm);
 
     if (dt > now && dt <= inHour) {
-      const linkText = s.meeting_url ? `\nСсылка на встречу: ${s.meeting_url}` : '';
-      const textUser =
-        `Напоминание: ваша встреча запланирована на ${s.time} (через ~1 час).${linkText}`;
-      const textAdmin =
-        `Напоминание: через час встреча с ${s.name} в ${s.time}.${linkText}`;
-
-      try {
-        await transporter.sendMail({
-          from: FROM_EMAIL,
-          to: s.email,
-          subject: 'Напоминание о встрече',
-          text: textUser
-        });
-        await transporter.sendMail({
-          from: FROM_EMAIL,
-          to: ADMIN_EMAIL,
-          subject: 'Напоминание о встрече с клиентом',
-          text: textAdmin
-        });
-        db.prepare('UPDATE slots SET reminder_sent = 1 WHERE id = ?').run(s.id);
-        processed++;
-      } catch (e) {
-        console.error('Reminder mail error:', e.message);
-      }
+      await sendReminderEmails({
+        name: s.name,
+        email: s.email,
+        slotTime: s.time,
+        meetingUrl: s.meeting_url
+      });
+      db.prepare('UPDATE slots SET reminder_sent = 1 WHERE id = ?').run(s.id);
+      processed++;
     }
   }
 
@@ -361,7 +420,7 @@ app.get('/admin', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'admin.html'));
 });
 
-// Healthcheck (на всякий случай)
+// Healthcheck
 app.get('/healthz', (req, res) => {
   res.json({ ok: true });
 });
