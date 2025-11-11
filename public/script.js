@@ -1,323 +1,169 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-  <meta charset="UTF-8">
-  <title>Запись на консультацию</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <style>
-    :root {
-      --bg-gradient: linear-gradient(135deg, #0f172a, #111827, #1f2937);
-      --accent: #6366f1;
-      --accent-soft: rgba(99,102,241,0.14);
-      --text-main: #e5e7eb;
-      --text-muted: #9ca3af;
-      --radius-xl: 22px;
-      --radius-md: 14px;
-      --transition-fast: 0.18s ease;
-      --border-soft: rgba(148,163,253,0.26);
-    }
+// Элементы
+const slotsContainer = document.getElementById('slots');
+const slotsEmpty = document.getElementById('slots-empty');
+const selectedSlotDiv = document.getElementById('selected-slot');
+const messageDiv = document.getElementById('message');
+const submitBtn = document.getElementById('submit-btn');
+const contactSelect = document.getElementById('contact-select');
 
-    * { box-sizing: border-box; }
+let selectedSlotId = null;
+let selectedSlotLabel = null;
 
-    body {
-      margin: 0;
-      min-height: 100vh;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, -sans-serif;
-      background: var(--bg-gradient);
-      color: var(--text-main);
-      display: flex;
-      justify-content: center;
-      padding: 32px 16px;
-    }
+// Визуальное переключение WhatsApp / Telegram
+if (contactSelect) {
+  contactSelect.addEventListener('click', (e) => {
+    const pill = e.target.closest('.radio-pill');
+    if (!pill) return;
+    contactSelect.querySelectorAll('.radio-pill')
+      .forEach(p => p.classList.remove('active'));
+    pill.classList.add('active');
+    const input = pill.querySelector('input');
+    if (input) input.checked = true;
+  });
+}
 
-    .shell {
-      width: 100%;
-      max-width: 1080px;
-      display: grid;
-      grid-template-columns: minmax(0, 3fr) minmax(280px, 2fr);
-      gap: 24px;
-      align-items: flex-start;
-    }
+// Группируем слоты по дате
+function groupByDate(slots) {
+  const map = {};
+  slots.forEach(s => {
+    const [dateStr, timeStr] = s.time.split(' ');
+    if (!map[dateStr]) map[dateStr] = [];
+    map[dateStr].push({ id: s.id, timeStr, full: s.time });
+  });
+  return map;
+}
 
-    @media (max-width: 800px) {
-      .shell {
-        grid-template-columns: 1fr;
+// Форматируем дату вида YYYY-MM-DD в DD.MM
+function formatDateLabel(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  if (!y || !m || !d) return dateStr;
+  return `${String(d).padStart(2,'0')}.${String(m).padStart(2,'0')}`;
+}
+
+// Загружаем и отрисовываем слоты
+async function loadSlots() {
+  if (!slotsContainer) return;
+
+  slotsContainer.textContent = 'Загрузка слотов...';
+  if (slotsEmpty) slotsEmpty.style.display = 'none';
+  selectedSlotId = null;
+  selectedSlotLabel = null;
+  if (selectedSlotDiv) selectedSlotDiv.textContent = 'Слот ещё не выбран.';
+  if (messageDiv) {
+    messageDiv.textContent = '';
+    messageDiv.className = '';
+  }
+
+  try {
+    const res = await fetch('/api/slots');
+    const slots = await res.json();
+
+    slotsContainer.innerHTML = '';
+
+    if (!slots.length) {
+      if (slotsEmpty) {
+        slotsEmpty.style.display = 'block';
+        slotsEmpty.textContent = 'На ближайшую неделю нет свободных слотов.';
       }
+      return;
     }
 
-    .card {
-      background: radial-gradient(circle at top left, rgba(148,163,253,0.08), transparent),
-                  rgba(15,23,42,0.98);
-      border-radius: var(--radius-xl);
-      padding: 22px 20px 20px;
-      border: 1px solid rgba(75,85,99,0.7);
-      box-shadow: 0 24px 80px rgba(15,23,42,0.85);
-      backdrop-filter: blur(18px);
+    const grouped = groupByDate(slots);
+
+    Object.keys(grouped).forEach(dateStr => {
+      // Заголовок дня
+      const day = document.createElement('div');
+      day.className = 'day-label';
+      day.textContent = `День ${formatDateLabel(dateStr)}`;
+      slotsContainer.appendChild(day);
+
+      // Кнопки слотов
+      grouped[dateStr].forEach(s => {
+        const btn = document.createElement('button');
+        btn.className = 'slot-btn';
+        btn.innerHTML = `${s.timeStr}<span>${formatDateLabel(dateStr)}</span>`;
+        btn.addEventListener('click', () => {
+          selectedSlotId = s.id;
+          selectedSlotLabel = `${dateStr} ${s.timeStr}`;
+          if (selectedSlotDiv) {
+            selectedSlotDiv.textContent = `Вы выбрали: ${selectedSlotLabel}`;
+          }
+          if (messageDiv) {
+            messageDiv.textContent = '';
+            messageDiv.className = '';
+          }
+        });
+        slotsContainer.appendChild(btn);
+      });
+    });
+  } catch (err) {
+    console.error('Ошибка загрузки слотов:', err);
+    slotsContainer.innerHTML = '';
+    if (slotsEmpty) {
+      slotsEmpty.style.display = 'block';
+      slotsEmpty.textContent = 'Ошибка загрузки слотов.';
+    }
+  }
+}
+
+// Отправка брони
+if (submitBtn) {
+  submitBtn.addEventListener('click', async () => {
+    if (!selectedSlotId) {
+      messageDiv.textContent = 'Сначала выберите время.';
+      messageDiv.className = 'error';
+      return;
     }
 
-    .headline {
-      font-size: 26px;
-      font-weight: 600;
-      margin: 0 0 6px;
-      letter-spacing: 0.01em;
+    const name = document.getElementById('name')?.value.trim();
+    const email = document.getElementById('email')?.value.trim();
+    const phone = document.getElementById('phone')?.value.trim();
+    const contactMethod = document.querySelector('input[name="contact"]:checked')?.value;
+
+    if (!name || !email || !phone || !contactMethod) {
+      messageDiv.textContent = 'Пожалуйста, заполните все поля.';
+      messageDiv.className = 'error';
+      return;
     }
 
-    .subtitle {
-      margin: 0 0 14px;
-      font-size: 14px;
-      color: var(--text-muted);
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Отправляем...';
+
+    try {
+      const res = await fetch('/api/book', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slotId: selectedSlotId, name, email, phone, contactMethod })
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        messageDiv.textContent = data.message;
+        messageDiv.className = 'success';
+        // обновляем слоты
+        await loadSlots();
+        // чистим форму
+        document.getElementById('name').value = '';
+        document.getElementById('email').value = '';
+        document.getElementById('phone').value = '';
+      } else {
+        messageDiv.textContent = data.message || 'Ошибка бронирования.';
+        messageDiv.className = 'error';
+        if (res.status === 409) {
+          await loadSlots();
+        }
+      }
+    } catch (err) {
+      console.error('Ошибка при бронировании:', err);
+      messageDiv.textContent = 'Ошибка сервера. Попробуйте ещё раз.';
+      messageDiv.className = 'error';
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Забронировать слот';
     }
+  });
+}
 
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 4px 9px;
-      border-radius: 999px;
-      background: var(--accent-soft);
-      color: var(--accent);
-      font-size: 11px;
-      margin-bottom: 10px;
-    }
-
-    /* СЛОТЫ */
-
-    #slots {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(82px, 1fr));
-      gap: 8px;
-      margin-top: 10px;
-    }
-
-    .day-label {
-      grid-column: 1 / -1;
-      margin-top: 14px;
-      font-size: 11px;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.14em;
-    }
-
-    .slot-btn {
-      padding: 7px 8px;
-      border-radius: 12px;
-      border: 1px solid rgba(75,85,99,0.9);
-      background: rgba(15,23,42,0.98);
-      color: var(--text-main);
-      font-size: 13px;
-      cursor: pointer;
-      transition: all var(--transition-fast);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 4px;
-      white-space: nowrap;
-    }
-
-    .slot-btn span {
-      font-size: 10px;
-      color: var(--accent);
-    }
-
-    .slot-btn:hover {
-      border-color: var(--accent);
-      box-shadow: 0 6px 22px rgba(79,70,229,0.35);
-      transform: translateY(-1px);
-      background: rgba(15,23,42,1);
-    }
-
-    .slot-empty {
-      color: var(--text-muted);
-      font-size: 13px;
-      margin-top: 10px;
-    }
-
-    /* ФОРМА */
-
-    .form-card {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-
-    .label {
-      font-size: 11px;
-      color: var(--text-muted);
-      margin-bottom: 2px;
-    }
-
-    .input, .select-row {
-      width: 100%;
-      padding: 8px 10px;
-      border-radius: 12px;
-      border: 1px solid rgba(75,85,99,0.9);
-      background: rgba(9,9,11,0.98);
-      color: var(--text-main);
-      font-size: 13px;
-      outline: none;
-      transition: all var(--transition-fast);
-    }
-
-    .input:focus {
-      border-color: var(--accent);
-      box-shadow: 0 0 0 1px rgba(99,102,241,0.25);
-    }
-
-    .select-row {
-      display: flex;
-      gap: 8px;
-      padding: 6px;
-      align-items: center;
-    }
-
-    .radio-pill {
-      flex: 1;
-      padding: 6px 8px;
-      border-radius: 999px;
-      background: transparent;
-      border: 1px solid rgba(75,85,99,0.9);
-      font-size: 11px;
-      color: var(--text-muted);
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      cursor: pointer;
-      transition: all var(--transition-fast);
-      justify-content: center;
-    }
-
-    .radio-pill input {
-      display: none;
-    }
-
-    .radio-pill.active {
-      border-color: var(--accent);
-      background: var(--accent-soft);
-      color: var(--accent);
-      box-shadow: 0 6px 18px rgba(79,70,229,0.4);
-    }
-
-    .selected-slot {
-      font-size: 12px;
-      color: var(--accent);
-      margin-bottom: 4px;
-    }
-
-    .submit-btn {
-      margin-top: 4px;
-      padding: 9px 12px;
-      border-radius: 14px;
-      border: none;
-      background: linear-gradient(90deg, #6366f1, #8b5cf6);
-      color: white;
-      font-size: 14px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: all var(--transition-fast);
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      justify-content: center;
-    }
-
-    .submit-btn:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 14px 40px rgba(79,70,229,0.55);
-    }
-
-    #message {
-      min-height: 18px;
-      font-size: 12px;
-      margin-top: 4px;
-    }
-    .success { color: #22c55e; }
-    .error { color: #f97316; }
-
-    /* Правая колонка */
-
-    .side-title {
-      font-size: 16px;
-      font-weight: 500;
-      margin-bottom: 6px;
-    }
-    .side-text {
-      font-size: 13px;
-      color: var(--text-muted);
-      margin-bottom: 16px;
-    }
-    .side-list {
-      list-style: none;
-      padding: 0;
-      margin: 0;
-      font-size: 12px;
-      color: var(--text-muted);
-    }
-    .side-list li {
-      margin-bottom: 6px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-    .dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 999px;
-      background: var(--accent);
-    }
-  </style>
-</head>
-<body>
-<div class="shell">
-
-  <!-- Левая: слоты -->
-  <div class="card">
-    <div class="badge">Онлайн-запись · свободные слоты на неделю</div>
-    <h1 class="headline">Выберите удобное время консультации</h1>
-    <p class="subtitle">
-      Заполните данные, выберите мессенджер — мы напишем вам для подтверждения.
-    </p>
-
-    <div id="slots"></div>
-    <div id="slots-empty" class="slot-empty" style="display:none;">
-      На ближайшую неделю нет свободных слотов.
-    </div>
-  </div>
-
-  <!-- Правая: форма -->
-  <div class="card form-card">
-    <div id="selected-slot" class="selected-slot">
-      Слот ещё не выбран.
-    </div>
-
-    <label class="label" for="name">Ваше имя</label>
-    <input id="name" class="input" type="text" placeholder="Как к вам обращаться?" required>
-
-    <label class="label" for="phone">Телефон для связи</label>
-    <input id="phone" class="input" type="tel" placeholder="+7 900 000-00-00" required>
-
-    <label class="label" for="email">Email (для резервной связи)</label>
-    <input id="email" class="input" type="email" placeholder="name@example.com" required>
-
-    <div class="label">Где удобнее написать?</div>
-    <div class="select-row" id="contact-select">
-      <label class="radio-pill active">
-        <input type="radio" name="contact" value="whatsapp" checked>
-        WhatsApp
-      </label>
-      <label class="radio-pill">
-        <input type="radio" name="contact" value="telegram">
-        Telegram
-      </label>
-    </div>
-
-    <button class="submit-btn" id="submit-btn">
-      Забронировать слот
-    </button>
-    <div id="message"></div>
-  </div>
-
-</div>
-
-<script src="script.js"></script>
-</body>
-</html>
+// Старт
+loadSlots();
