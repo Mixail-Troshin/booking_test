@@ -6,14 +6,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     :root {
-      --bg-gradient: radial-gradient(circle at top, #020817, #020817 40%, #000000 100%);
+      --bg-gradient: radial-gradient(circle at top, #020817, #000000);
       --accent: #6366f1;
-      --accent-soft: rgba(99,102,241,0.16);
-      --accent-soft2: rgba(129,140,248,0.1);
+      --accent-soft: rgba(99,102,241,0.18);
+      --accent-soft2: rgba(129,140,248,0.16);
       --text-main: #e5e7eb;
       --text-muted: #9ca3af;
       --radius-xl: 24px;
-      --radius-md: 16px;
       --transition-fast: 0.18s ease;
     }
 
@@ -39,14 +38,12 @@
     }
 
     @media (max-width: 840px) {
-      .shell {
-        grid-template-columns: 1fr;
-      }
+      .shell { grid-template-columns: 1fr; }
     }
 
     .card {
       background:
-        radial-gradient(circle at top left, rgba(148,163,253,0.14), transparent),
+        radial-gradient(circle at top left, rgba(148,163,253,0.12), transparent),
         rgba(6,8,16,0.98);
       border-radius: var(--radius-xl);
       border: 1px solid rgba(75,85,99,0.9);
@@ -79,8 +76,7 @@
       margin: 0 0 16px;
     }
 
-    /* КАЛЕНДАРЬ */
-
+    /* Календарь дат */
     .days-strip {
       display: flex;
       gap: 8px;
@@ -97,34 +93,31 @@
       background: rgba(9,9,11,0.98);
       display: flex;
       flex-direction: column;
-      align-items: flex-start;
       gap: 2px;
       cursor: pointer;
       transition: all var(--transition-fast);
       flex-shrink: 0;
     }
 
-    .day-pill span.date {
-      font-size: 14px;
-      font-weight: 500;
-      color: var(--text-main);
-    }
-
     .day-pill span.weekday {
-      font-size: 10px;
+      font-size: 9px;
       color: var(--text-muted);
       text-transform: uppercase;
       letter-spacing: .12em;
     }
 
+    .day-pill span.date {
+      font-size: 14px;
+      font-weight: 500;
+    }
+
     .day-pill.active {
       border-color: var(--accent);
       background: var(--accent-soft2);
-      box-shadow: 0 14px 36px rgba(79,70,229,0.6);
+      box-shadow: 0 14px 36px rgba(79,70,229,0.7);
     }
 
-    /* СЛОТЫ ВЫБРАННОГО ДНЯ */
-
+    /* Слоты */
     #slots {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(86px, 1fr));
@@ -150,20 +143,26 @@
       background: rgba(6,8,16,1);
     }
 
+    .slot-btn.active {
+      border-color: var(--accent);
+      background: var(--accent-soft2);
+      box-shadow: 0 10px 28px rgba(79,70,229,0.75);
+      transform: translateY(-1px);
+    }
+
     .slot-empty {
       font-size: 13px;
       color: var(--text-muted);
       margin-top: 6px;
     }
 
-    /* ПРАВАЯ КАРТА: ФОРМА */
-
+    /* Форма */
     .form-card {
       display: flex;
       flex-direction: column;
       gap: 8px;
       background:
-        radial-gradient(circle at top right, rgba(129,140,248,0.18), transparent),
+        radial-gradient(circle at top right, rgba(129,140,248,0.16), transparent),
         rgba(6,8,16,0.98);
     }
 
@@ -211,7 +210,6 @@
       border-radius: 999px;
       font-size: 11px;
       color: var(--text-muted);
-      border: none;
       display: flex;
       justify-content: center;
       cursor: pointer;
@@ -245,7 +243,7 @@
 
     .submit-btn:hover {
       transform: translateY(-1px);
-      box-shadow: 0 18px 42px rgba(79,70,229,0.7);
+      box-shadow: 0 18px 42px rgba(79,70,229,0.8);
     }
 
     #message {
@@ -253,7 +251,6 @@
       font-size: 12px;
       margin-top: 4px;
     }
-
     .success { color: #22c55e; }
     .error { color: #f97316; }
   </style>
@@ -261,11 +258,10 @@
 <body>
 <div class="shell">
 
-  <!-- Левая колонка: календарь -->
   <div class="card">
     <div class="badge">Онлайн-запись · свободные слоты</div>
     <h1 class="headline">Выберите удобный день и время</h1>
-    <p class="subtitle">Кликните по дате, затем по времени. Мы свяжемся с вами в выбранном мессенджере.</p>
+    <p class="subtitle">Сначала выберите дату, затем время. Мы отправим подтверждение и ссылку на встречу.</p>
 
     <div id="days" class="days-strip"></div>
 
@@ -273,7 +269,6 @@
     <div id="slots-empty" class="slot-empty" style="display:none;"></div>
   </div>
 
-  <!-- Правая колонка: форма -->
   <div class="card form-card">
     <div id="selected-slot" class="selected-slot">Слот ещё не выбран.</div>
 
@@ -283,7 +278,7 @@
     <label class="label" for="phone">Телефон для связи</label>
     <input id="phone" class="input" type="tel" placeholder="+7 900 000-00-00" required>
 
-    <label class="label" for="email">Email (для резервной связи)</label>
+    <label class="label" for="email">Email (для подтверждения)</label>
     <input id="email" class="input" type="email" placeholder="name@example.com" required>
 
     <div class="label">Где удобнее написать?</div>
