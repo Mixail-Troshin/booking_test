@@ -2,136 +2,264 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <title>Админка - записи на встречи</title>
+  <title>Админка — записи на встречи</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
-    body {
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-      max-width: 800px;
-      margin: 40px auto;
-      padding: 0 16px;
+    :root {
+      --bg: radial-gradient(circle at top, #111827, #020817);
+      --accent: #6366f1;
+      --accent-soft: rgba(99,102,241,0.16);
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --radius: 22px;
     }
-    h1 { font-size: 24px; margin-bottom: 12px; }
-    #login { margin-bottom: 16px; }
-    input {
-      padding: 6px 8px;
-      border-radius: 4px;
-      border: 1px solid #ccc;
-      font-size: 14px;
-      margin-right: 6px;
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 26px 14px;
+      display: flex;
+      justify-content: center;
+    }
+    .wrap {
+      width: 100%;
+      max-width: 1100px;
+    }
+    .card {
+      background: rgba(9,9,11,0.98);
+      border-radius: var(--radius);
+      padding: 18px 18px 14px;
+      border: 1px solid rgba(75,85,99,0.8);
+      box-shadow: 0 24px 80px rgba(15,23,42,0.9);
+      backdrop-filter: blur(14px);
+    }
+    h1 {
+      margin: 0 0 4px;
+      font-size: 22px;
+      font-weight: 600;
+    }
+    .sub {
+      margin: 0 0 12px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    #login-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+    }
+    #key-input {
+      padding: 7px 9px;
+      border-radius: 999px;
+      border: 1px solid rgba(75,85,99,0.9);
+      background: #020817;
+      color: var(--text);
+      font-size: 12px;
+      min-width: 180px;
+      outline: none;
     }
     button {
-      padding: 6px 10px;
+      padding: 7px 11px;
+      border-radius: 999px;
       border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 14px;
-      background: #007bff;
+      background: var(--accent);
       color: white;
+      font-size: 12px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    #message {
+      font-size: 11px;
+      color: #f97316;
+      min-height: 14px;
     }
     table {
       width: 100%;
       border-collapse: collapse;
-      margin-top: 12px;
-      font-size: 13px;
+      margin-top: 8px;
+      font-size: 11px;
     }
     th, td {
-      border: 1px solid #eee;
-      padding: 6px;
-    }
-    th {
-      background: #f7f7f7;
+      border-bottom: 1px solid rgba(31,41,55,0.9);
+      padding: 6px 4px;
       text-align: left;
     }
-    .tag {
-      display: inline-block;
-      padding: 2px 6px;
-      border-radius: 10px;
-      font-size: 11px;
-      color: #fff;
+    th {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--muted);
     }
-    .free { background: #28a745; }
-    .booked { background: #dc3545; }
-    #message {
-      margin-top: 8px;
-      font-size: 13px;
-      color: #c00;
+    .tag {
+      padding: 2px 6px;
+      border-radius: 999px;
+      font-size: 9px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .free { background: rgba(22,163,74,0.18); color:#22c55e; }
+    .booked { background: rgba(239,68,68,0.18); color:#f97316; }
+
+    .contact-pill {
+      display: inline-flex;
+      padding: 2px 5px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: 9px;
+      gap: 4px;
+      align-items: center;
+    }
+
+    .link-btn {
+      padding: 3px 7px;
+      border-radius: 999px;
+      background: transparent;
+      border: 1px solid var(--accent);
+      color: var(--accent);
+      font-size: 9px;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.16s;
+    }
+    .link-btn:hover {
+      background: var(--accent);
+      color: white;
+      box-shadow: 0 8px 24px rgba(99,102,241,0.5);
+    }
+    .muted {
+      color: var(--muted);
+      font-size: 10px;
     }
   </style>
 </head>
 <body>
-  <h1>Админка — записи на встречи</h1>
-  <div id="login">
-    <input id="key-input" type="password" placeholder="Ключ администратора">
-    <button onclick="loadSlots()">Войти / Обновить</button>
-    <div id="message"></div>
-  </div>
+<div class="wrap">
+  <div class="card">
+    <h1>Админка — записи на неделю</h1>
+    <p class="sub">Введите ключ администратора, чтобы увидеть все записи и сразу писать клиентам.</p>
 
-  <table id="slots-table" style="display:none;">
-    <thead>
+    <div id="login-row">
+      <input id="key-input" type="password" placeholder="Ключ администратора">
+      <button onclick="loadSlots()">Войти / Обновить</button>
+      <div id="message"></div>
+    </div>
+
+    <table id="slots-table" style="display:none;">
+      <thead>
       <tr>
         <th>ID</th>
         <th>Время</th>
         <th>Статус</th>
-        <th>Имя</th>
-        <th>Email</th>
+        <th>Клиент</th>
+        <th>Контакты</th>
+        <th>Действие</th>
       </tr>
-    </thead>
-    <tbody id="slots-body"></tbody>
-  </table>
+      </thead>
+      <tbody id="slots-body"></tbody>
+    </table>
+    <div id="hint" class="muted"></div>
+  </div>
+</div>
 
-  <script>
-    async function loadSlots() {
-      const key = document.getElementById('key-input').value.trim();
-      const msg = document.getElementById('message');
-      const table = document.getElementById('slots-table');
-      const body = document.getElementById('slots-body');
+<script>
+  async function loadSlots() {
+    const key = document.getElementById('key-input').value.trim();
+    const msg = document.getElementById('message');
+    const table = document.getElementById('slots-table');
+    const body = document.getElementById('slots-body');
+    const hint = document.getElementById('hint');
 
-      msg.textContent = '';
-      table.style.display = 'none';
-      body.innerHTML = '';
+    msg.textContent = '';
+    hint.textContent = '';
+    table.style.display = 'none';
+    body.innerHTML = '';
 
-      if (!key) {
-        msg.textContent = 'Введите ключ администратора.';
+    if (!key) {
+      msg.textContent = 'Введите ключ администратора.';
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/admin/slots?key=' + encodeURIComponent(key));
+      const data = await res.json();
+
+      if (!data.success) {
+        msg.textContent = data.message || 'Ошибка доступа.';
         return;
       }
 
-      try {
-        const res = await fetch('/api/admin/slots?key=' + encodeURIComponent(key));
-        const data = await res.json();
-
-        if (!data.success) {
-          msg.textContent = data.message || 'Ошибка доступа';
-          return;
-        }
-
-        const slots = data.slots;
-        if (!slots.length) {
-          msg.textContent = 'Слотов нет.';
-          return;
-        }
-
-        slots.forEach(s => {
-          const tr = document.createElement('tr');
-          const status = s.booked
-            ? '<span class="tag booked">Занят</span>'
-            : '<span class="tag free">Свободен</span>';
-          tr.innerHTML = `
-            <td>${s.id}</td>
-            <td>${s.time}</td>
-            <td>${status}</td>
-            <td>${s.name || ''}</td>
-            <td>${s.email || ''}</td>
-          `;
-          body.appendChild(tr);
-        });
-
-        table.style.display = 'table';
-      } catch (err) {
-        console.error(err);
-        msg.textContent = 'Ошибка загрузки данных.';
+      const slots = data.slots;
+      if (!slots.length) {
+        msg.textContent = 'Слотов нет.';
+        return;
       }
+
+      slots.forEach(s => {
+        const tr = document.createElement('tr');
+
+        const status = s.booked
+          ? '<span class="tag booked">Занят</span>'
+          : '<span class="tag free">Свободен</span>';
+
+        const client = s.booked
+          ? `${s.name || ''}<br><span class="muted">${s.email || ''}</span>`
+          : '';
+
+        const contactLabel = s.booked
+          ? `<div class="contact-pill">${(s.contact_method || '-')} · ${s.phone || ''}</div>`
+          : '';
+
+        let actionCell = '';
+        if (s.booked && s.phone) {
+          const baseText = encodeURIComponent(
+            `Здравствуйте, это по поводу вашей записи на ${s.time}.`
+          );
+          const digits = (s.phone || '').replace(/\D/g, '');
+
+          let wa = '', tg = '';
+
+          if (digits) {
+            wa = `<a class="link-btn" href="https://wa.me/${digits}?text=${baseText}" target="_blank">WhatsApp</a>`;
+          }
+
+          if (s.contact_method === 'telegram') {
+            // t.me/share/url откроет Telegram с готовым текстом
+            tg = `<a class="link-btn" href="https://t.me/share/url?url=&text=${baseText}" target="_blank">Telegram</a>`;
+          }
+
+          actionCell = wa + (wa && tg ? ' ' : '') + tg;
+        }
+
+        tr.innerHTML = `
+          <td>${s.id}</td>
+          <td>${s.time}</td>
+          <td>${status}</td>
+          <td>${client}</td>
+          <td>${contactLabel}</td>
+          <td>${actionCell}</td>
+        `;
+
+        body.appendChild(tr);
+      });
+
+      table.style.display = 'table';
+      hint.textContent = 'Кнопка "Написать" откроет диалог в выбранном мессенджере с готовым текстом.';
+    } catch (err) {
+      console.error(err);
+      msg.textContent = 'Ошибка загрузки данных.';
     }
-  </script>
+  }
+</script>
 </body>
 </html>
