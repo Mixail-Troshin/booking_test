@@ -7,7 +7,7 @@ const nodemailer = require('nodemailer');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// --- настройки из переменных окружения Render ---
+// --- ENV ---
 const ADMIN_KEY = process.env.ADMIN_KEY || 'changeme';
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@example.com';
 const FROM_EMAIL = process.env.FROM_EMAIL || 'no-reply@example.com';
@@ -16,7 +16,7 @@ const SMTP_PORT = process.env.SMTP_PORT || '';
 const SMTP_USER = process.env.SMTP_USER || '';
 const SMTP_PASS = process.env.SMTP_PASS || '';
 
-// --- email-транспорт (если задан SMTP) ---
+// --- Email transporter (опционально) ---
 let transporter = null;
 if (SMTP_HOST && SMTP_PORT && SMTP_USER && SMTP_PASS) {
   transporter = nodemailer.createTransport({
@@ -33,12 +33,12 @@ if (SMTP_HOST && SMTP_PORT && SMTP_USER && SMTP_PASS) {
   console.log('Email не настроен: задайте SMTP_* переменные, чтобы отправлять письма');
 }
 
-// --- middleware ---
+// --- Middleware ---
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// --- база SQLite ---
+// --- DB ---
 const db = new Database('slots.db');
 
 db.prepare(`
@@ -47,41 +47,69 @@ db.prepare(`
     time TEXT NOT NULL,
     booked INTEGER NOT NULL DEFAULT 0,
     name TEXT,
-    email TEXT
+    email TEXT,
+    phone TEXT,
+    contact_method TEXT
   )
 `).run();
 
-// если пусто — создаём слоты на сегодня
+// На случай старой таблицы — добавить недостающие колонки
+try { db.prepare('ALTER TABLE slots ADD COLUMN phone TEXT').run(); } catch {}
+try { db.prepare('ALTER TABLE slots ADD COLUMN contact_method TEXT').run(); } catch {}
+
+// Функция форматирования даты в "YYYY-MM-DD"
+function formatDate(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+// Инициализация слотов на 7 дней вперёд, если пусто
 const count = db.prepare('SELECT COUNT(*) AS c FROM slots').get().c;
 if (count === 0) {
   const insert = db.prepare('INSERT INTO slots (time) VALUES (?)');
-  const times = [
-    '10:00','10:30',
-    '11:00','11:30',
-    '12:00','12:30',
-    '13:00','13:30'
-  ];
-  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-  for (const t of times) {
-    insert.run(`${today} ${t}`);
+  const times = ['10:00','10:30','11:00','11:30','12:00','12:30','13:00','13:30'];
+
+  const today = new Date();
+  for (let offset = 0; offset < 7; offset++) {
+    const d = new Date(today);
+    d.setDate(d.getDate() + offset);
+    const dateStr = formatDate(d);
+    for (const t of times) {
+      insert.run(`${dateStr} ${t}`);
+    }
   }
-  console.log('Созданы стартовые слоты на сегодня');
+  console.log('Созданы стартовые слоты на 7 дней');
 }
 
-// --- публичное API: свободные слоты ---
+// --- API: свободные слоты на неделю вперёд ---
 app.get('/api/slots', (req, res) => {
+  const now = new Date();
+  const weekEnd = new Date();
+  weekEnd.setDate(now.getDate() + 7);
+
+  const from = `${formatDate(now)} 00:00`;
+  const to = `${formatDate(weekEnd)} 23:59`;
+
   const rows = db.prepare(
-    'SELECT id, time FROM slots WHERE booked = 0 ORDER BY time'
-  ).all();
+    `SELECT id, time
+     FROM slots
+     WHERE booked = 0
+       AND time >= ?
+       AND time <= ?
+     ORDER BY time`
+  ).all(from, to);
+
   res.json(rows);
 });
 
-// --- публичное API: бронь ---
+// --- API: бронирование ---
 app.post('/api/book', async (req, res) => {
-  const { slotId, name, email } = req.body;
+  const { slotId, name, email, phone, contactMethod } = req.body;
 
-  if (!slotId || !name || !email) {
-    return res.status(400).json({ success: false, message: 'Не хватает данных' });
+  if (!slotId || !name || !email || !phone || !contactMethod) {
+    return res.status(400).json({ success: false, message: 'Заполните все поля' });
   }
 
   const slot = db.prepare('SELECT id, booked, time FROM slots WHERE id = ?').get(slotId);
@@ -94,9 +122,13 @@ app.post('/api/book', async (req, res) => {
 
   const info = db.prepare(`
     UPDATE slots
-    SET booked = 1, name = ?, email = ?
+    SET booked = 1,
+        name = ?,
+        email = ?,
+        phone = ?,
+        contact_method = ?
     WHERE id = ? AND booked = 0
-  `).run(name, email, slotId);
+  `).run(name, email, phone, contactMethod, slotId);
 
   if (info.changes === 0) {
     return res.status(409).json({ success: false, message: 'Слот уже занят' });
@@ -104,26 +136,35 @@ app.post('/api/book', async (req, res) => {
 
   const slotTime = slot.time;
 
+  // Письма (если настроен SMTP)
   if (transporter) {
+    const textUser = `Вы записаны на встречу ${slotTime}. Мы свяжемся с вами в ${contactMethod} по номеру ${phone}.`;
+    const textAdmin = `Новая запись:
+Время: ${slotTime}
+Имя: ${name}
+Email: ${email}
+Телефон: ${phone}
+Способ связи: ${contactMethod}`;
+
     transporter.sendMail({
       from: FROM_EMAIL,
       to: email,
       subject: 'Подтверждение записи на встречу',
-      text: `Вы записаны на встречу в ${slotTime}.`
+      text: textUser
     }).catch(err => console.error('Mail user error:', err.message));
 
     transporter.sendMail({
       from: FROM_EMAIL,
       to: ADMIN_EMAIL,
       subject: 'Новая запись на встречу',
-      text: `Время: ${slotTime}\nИмя: ${name}\nEmail: ${email}`
+      text: textAdmin
     }).catch(err => console.error('Mail admin error:', err.message));
   }
 
   res.json({ success: true, message: 'Вы успешно записаны!' });
 });
 
-// --- API для админки ---
+// --- API: админка ---
 app.get('/api/admin/slots', (req, res) => {
   const key = req.query.key;
   if (key !== ADMIN_KEY) {
@@ -131,7 +172,7 @@ app.get('/api/admin/slots', (req, res) => {
   }
 
   const rows = db.prepare(
-    'SELECT id, time, booked, name, email FROM slots ORDER BY time'
+    'SELECT id, time, booked, name, email, phone, contact_method FROM slots ORDER BY time'
   ).all();
 
   res.json({ success: true, slots: rows });
@@ -142,7 +183,7 @@ app.get('/admin', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'admin.html'));
 });
 
-// --- старт ---
+// --- start ---
 app.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
 });
