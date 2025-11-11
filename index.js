@@ -9,12 +9,17 @@ const PORT = process.env.PORT || 3000;
 // ===== ENV =====
 const ADMIN_KEY = process.env.ADMIN_KEY || 'changeme';
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'mikhail.tr0shin@yandex.ru';
+const ADMIN_WHATSAPP = process.env.ADMIN_WHATSAPP || '79500333077'; // без +
 
 const TELEMOST_TOKEN = process.env.TELEMOST_TOKEN || ''; // OAuth-токен Telemost
 
-// PHP-почтовый шлюз (galaxytap.ru/mymail.php)
+// PHP-почтовый шлюз
 const MAIL_ENDPOINT = process.env.MAIL_ENDPOINT || '';
 const MAIL_SECRET = process.env.MAIL_SECRET || '';
+
+// Wazzup
+const WAZZUP_API_KEY = process.env.WAZZUP_API_KEY || '';
+const WAZZUP_CHANNEL_ID = process.env.WAZZUP_CHANNEL_ID || ''; // UUID канала WhatsApp
 
 // ===== MIDDLEWARE =====
 app.use(cors());
@@ -81,6 +86,27 @@ function ensureDefaultSlots() {
 }
 ensureDefaultSlots();
 
+// ===== ВСПОМОГАТЕЛЬНОЕ =====
+
+function normalizePhoneToDigits(phone) {
+  if (!phone) return '';
+  const digits = String(phone).replace(/\D/g, '');
+  if (!digits) return '';
+  // если начинается с 8 и длина 11, меняем на 7
+  if (digits.length === 11 && digits[0] === '8') {
+    return '7' + digits.slice(1);
+  }
+  // если начинается с 7 и 11 цифр — ок
+  if (digits.length === 11 && digits[0] === '7') {
+    return digits;
+  }
+  // если 10 цифр — добавим 7
+  if (digits.length === 10) {
+    return '7' + digits;
+  }
+  return digits;
+}
+
 // ===== ПОЧТА ЧЕРЕЗ PHP (galaxytap.ru/mymail.php) =====
 
 async function sendViaPhpMail({ toEmail, subject, text, html }) {
@@ -120,7 +146,6 @@ async function sendViaPhpMail({ toEmail, subject, text, html }) {
   }
 }
 
-// Отправка писем при бронировании
 async function sendBookingEmails({ name, email, phone, slotTime, contactMethod, meetingUrl }) {
   const safeName = name || 'клиент';
   const linkBlock = meetingUrl
@@ -167,7 +192,6 @@ async function sendBookingEmails({ name, email, phone, slotTime, contactMethod, 
   });
 }
 
-// Отправка напоминаний
 async function sendReminderEmails({ name, email, slotTime, meetingUrl }) {
   const safeName = name || 'клиент';
   const linkBlock = meetingUrl
@@ -206,7 +230,78 @@ async function sendReminderEmails({ name, email, slotTime, meetingUrl }) {
   });
 }
 
+// ===== WAZZUP (WhatsApp) =====
+
+async function sendWazzupMessage({ toPhone, text }) {
+  if (!WAZZUP_API_KEY || !WAZZUP_CHANNEL_ID) {
+    console.log('Wazzup не настроен');
+    return false;
+  }
+
+  const chatId = normalizePhoneToDigits(toPhone);
+  if (!chatId) {
+    console.log('Wazzup: некорректный номер', toPhone);
+    return false;
+  }
+
+  const body = {
+    channelId: WAZZUP_CHANNEL_ID,
+    chatType: 'whatsapp',
+    chatId,
+    text,
+    clearUnanswered: false
+  };
+
+  try {
+    const resp = await fetch('https://api.wazzup24.com/v3/message', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${WAZZUP_API_KEY}`
+      },
+      body: JSON.stringify(body)
+    });
+
+    const data = await resp.text();
+
+    if (!resp.ok) {
+      console.error('Wazzup error:', resp.status, data);
+      return false;
+    }
+
+    console.log('Wazzup message ok ->', chatId);
+    return true;
+  } catch (e) {
+    console.error('Wazzup exception:', e);
+    return false;
+  }
+}
+
+async function sendWazzupNotifications({ name, phone, slotTime, meetingUrl }) {
+  const safeName = name || 'клиент';
+  const userPhone = phone ? normalizePhoneToDigits(phone) : '';
+  const adminPhone = ADMIN_WHATSAPP;
+
+  const linkText = meetingUrl ? ` Ссылка: ${meetingUrl}` : '';
+
+  // Клиенту (если указал телефон)
+  if (userPhone) {
+    const textUser =
+      `Вы записаны на встречу ${slotTime}.` +
+      ` Если нужно изменить время — просто ответьте на это сообщение.` +
+      `${linkText ? ' ' + linkText : ''}`;
+    await sendWazzupMessage({ toPhone: userPhone, text: textUser });
+  }
+
+  // Тебе
+  const textAdmin =
+    `Новая запись: ${safeName}, ${phone || 'без телефона'}, ${slotTime}.` +
+    (meetingUrl ? ` Телемост: ${meetingUrl}` : '');
+  await sendWazzupMessage({ toPhone: adminPhone, text: textAdmin });
+}
+
 // ===== TELEMOST =====
+
 async function createTelemostConference() {
   if (!TELEMOST_TOKEN) {
     console.log('Telemost: TELEMOST_TOKEN не задан, пропускаем создание встречи');
@@ -313,7 +408,7 @@ app.post('/api/book', async (req, res) => {
 
   const slotTime = slot.time;
 
-  // отправляем письма через PHP-шлюз
+  // E-mail нотификации
   await sendBookingEmails({
     name,
     email,
@@ -323,9 +418,17 @@ app.post('/api/book', async (req, res) => {
     meetingUrl
   });
 
+  // WhatsApp нотификации (через Wazzup)
+  await sendWazzupNotifications({
+    name,
+    phone,
+    slotTime,
+    meetingUrl
+  });
+
   res.json({
     success: true,
-    message: 'Вы успешно записаны! Подтверждение отправлено на email.'
+    message: 'Вы успешно записаны! Подтверждение отправлено на email и в WhatsApp (если указан).'
   });
 });
 
@@ -376,7 +479,7 @@ app.post('/api/admin/schedule', (req, res) => {
   res.json({ success: true, message: 'Расписание обновлено' });
 });
 
-// Напоминания за час (дергается кроном Render или любым scheduler)
+// Напоминания за час
 app.post('/api/admin/send-reminders', async (req, res) => {
   const { key } = req.body || {};
   if (key !== ADMIN_KEY) {
