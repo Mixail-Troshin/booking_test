@@ -1,4 +1,4 @@
-// Элементы
+const daysStrip = document.getElementById('days');
 const slotsContainer = document.getElementById('slots');
 const slotsEmpty = document.getElementById('slots-empty');
 const selectedSlotDiv = document.getElementById('selected-slot');
@@ -6,98 +6,122 @@ const messageDiv = document.getElementById('message');
 const submitBtn = document.getElementById('submit-btn');
 const contactSelect = document.getElementById('contact-select');
 
-let selectedSlotId = null;
-let selectedSlotLabel = null;
+let currentDate = null;       // выбранная дата YYYY-MM-DD
+let selectedSlotId = null;    // id выбранного слота
+let selectedSlotLabel = null; // строка для вывода
 
-// Визуальное переключение WhatsApp / Telegram
+// Переключение WhatsApp/Telegram визуально
 if (contactSelect) {
   contactSelect.addEventListener('click', (e) => {
     const pill = e.target.closest('.radio-pill');
     if (!pill) return;
-    contactSelect.querySelectorAll('.radio-pill')
-      .forEach(p => p.classList.remove('active'));
+    contactSelect.querySelectorAll('.radio-pill').forEach(p => p.classList.remove('active'));
     pill.classList.add('active');
     const input = pill.querySelector('input');
     if (input) input.checked = true;
   });
 }
 
-// Группируем слоты по дате
-function groupByDate(slots) {
-  const map = {};
-  slots.forEach(s => {
-    const [dateStr, timeStr] = s.time.split(' ');
-    if (!map[dateStr]) map[dateStr] = [];
-    map[dateStr].push({ id: s.id, timeStr, full: s.time });
-  });
-  return map;
-}
-
-// Форматируем дату вида YYYY-MM-DD в DD.MM
 function formatDateLabel(dateStr) {
   const [y, m, d] = dateStr.split('-').map(Number);
-  if (!y || !m || !d) return dateStr;
   return `${String(d).padStart(2,'0')}.${String(m).padStart(2,'0')}`;
 }
 
-// Загружаем и отрисовываем слоты
-async function loadSlots() {
-  if (!slotsContainer) return;
+function weekdayRu(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  return ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'][dt.getDay()];
+}
 
-  slotsContainer.textContent = 'Загрузка слотов...';
-  if (slotsEmpty) slotsEmpty.style.display = 'none';
-  selectedSlotId = null;
-  selectedSlotLabel = null;
-  if (selectedSlotDiv) selectedSlotDiv.textContent = 'Слот ещё не выбран.';
-  if (messageDiv) {
-    messageDiv.textContent = '';
-    messageDiv.className = '';
+// Рисуем плашки дней
+function renderDays(dates) {
+  daysStrip.innerHTML = '';
+  if (!dates.length) {
+    if (slotsEmpty) {
+      slotsEmpty.style.display = 'block';
+      slotsEmpty.textContent = 'Нет доступных дат для записи.';
+    }
+    return;
   }
+  dates.forEach((date, idx) => {
+    const pill = document.createElement('div');
+    pill.className = 'day-pill';
+    if (idx === 0) {
+      pill.classList.add('active');
+      currentDate = date;
+    }
+    pill.dataset.date = date;
+    pill.innerHTML = `
+      <span class="weekday">${weekdayRu(date)}</span>
+      <span class="date">${formatDateLabel(date)}</span>
+    `;
+    pill.addEventListener('click', () => {
+      currentDate = date;
+      selectedSlotId = null;
+      selectedSlotLabel = null;
+      selectedSlotDiv.textContent = 'Слот ещё не выбран.';
+      messageDiv.textContent = '';
+      messageDiv.className = '';
+      document.querySelectorAll('.day-pill').forEach(p => p.classList.remove('active'));
+      pill.classList.add('active');
+      loadSlotsForDay(date);
+    });
+    daysStrip.appendChild(pill);
+  });
+}
 
+// Загружаем список дат и первый день
+async function initCalendar() {
   try {
-    const res = await fetch('/api/slots');
+    const res = await fetch('/api/dates');
+    const dates = await res.json();
+    renderDays(dates);
+    if (dates.length) {
+      await loadSlotsForDay(dates[0]);
+    }
+  } catch (err) {
+    console.error(err);
+    if (slotsEmpty) {
+      slotsEmpty.style.display = 'block';
+      slotsEmpty.textContent = 'Ошибка загрузки дат.';
+    }
+  }
+}
+
+// Загружаем слоты конкретного дня
+async function loadSlotsForDay(date) {
+  slotsContainer.innerHTML = 'Загрузка...';
+  if (slotsEmpty) {
+    slotsEmpty.style.display = 'none';
+    slotsEmpty.textContent = '';
+  }
+  try {
+    const res = await fetch('/api/slots?date=' + encodeURIComponent(date));
     const slots = await res.json();
-
     slotsContainer.innerHTML = '';
-
     if (!slots.length) {
       if (slotsEmpty) {
         slotsEmpty.style.display = 'block';
-        slotsEmpty.textContent = 'На ближайшую неделю нет свободных слотов.';
+        slotsEmpty.textContent = 'На этот день свободных слотов нет.';
       }
       return;
     }
-
-    const grouped = groupByDate(slots);
-
-    Object.keys(grouped).forEach(dateStr => {
-      // Заголовок дня
-      const day = document.createElement('div');
-      day.className = 'day-label';
-      day.textContent = `День ${formatDateLabel(dateStr)}`;
-      slotsContainer.appendChild(day);
-
-      // Кнопки слотов
-      grouped[dateStr].forEach(s => {
-        const btn = document.createElement('button');
-        btn.className = 'slot-btn';
-        btn.innerHTML = `${s.timeStr}<span>${formatDateLabel(dateStr)}</span>`;
-        btn.addEventListener('click', () => {
-          selectedSlotId = s.id;
-          selectedSlotLabel = `${dateStr} ${s.timeStr}`;
-          if (selectedSlotDiv) {
-            selectedSlotDiv.textContent = `Вы выбрали: ${selectedSlotLabel}`;
-          }
-          if (messageDiv) {
-            messageDiv.textContent = '';
-            messageDiv.className = '';
-          }
-        });
-        slotsContainer.appendChild(btn);
+    slots.forEach(s => {
+      const [, timeStr] = s.time.split(' ');
+      const btn = document.createElement('button');
+      btn.className = 'slot-btn';
+      btn.textContent = timeStr;
+      btn.addEventListener('click', () => {
+        selectedSlotId = s.id;
+        selectedSlotLabel = s.time;
+        selectedSlotDiv.textContent = `Вы выбрали: ${s.time}`;
+        messageDiv.textContent = '';
+        messageDiv.className = '';
       });
+      slotsContainer.appendChild(btn);
     });
   } catch (err) {
-    console.error('Ошибка загрузки слотов:', err);
+    console.error(err);
     slotsContainer.innerHTML = '';
     if (slotsEmpty) {
       slotsEmpty.style.display = 'block';
@@ -110,24 +134,24 @@ async function loadSlots() {
 if (submitBtn) {
   submitBtn.addEventListener('click', async () => {
     if (!selectedSlotId) {
-      messageDiv.textContent = 'Сначала выберите время.';
+      messageDiv.textContent = 'Сначала выберите день и время.';
       messageDiv.className = 'error';
       return;
     }
 
-    const name = document.getElementById('name')?.value.trim();
-    const email = document.getElementById('email')?.value.trim();
-    const phone = document.getElementById('phone')?.value.trim();
+    const name = document.getElementById('name').value.trim();
+    const email = document.getElementById('email').value.trim();
+    const phone = document.getElementById('phone').value.trim();
     const contactMethod = document.querySelector('input[name="contact"]:checked')?.value;
 
     if (!name || !email || !phone || !contactMethod) {
-      messageDiv.textContent = 'Пожалуйста, заполните все поля.';
+      messageDiv.textContent = 'Заполните все поля.';
       messageDiv.className = 'error';
       return;
     }
 
     submitBtn.disabled = true;
-    submitBtn.textContent = 'Отправляем...';
+    submitBtn.textContent = 'Бронируем...';
 
     try {
       const res = await fetch('/api/book', {
@@ -135,27 +159,26 @@ if (submitBtn) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ slotId: selectedSlotId, name, email, phone, contactMethod })
       });
-
       const data = await res.json();
-
       if (data.success) {
         messageDiv.textContent = data.message;
         messageDiv.className = 'success';
-        // обновляем слоты
-        await loadSlots();
-        // чистим форму
+        await initCalendar(); // перегрузим даты/слоты
         document.getElementById('name').value = '';
         document.getElementById('email').value = '';
         document.getElementById('phone').value = '';
+        selectedSlotId = null;
+        selectedSlotLabel = null;
+        selectedSlotDiv.textContent = 'Слот ещё не выбран.';
       } else {
         messageDiv.textContent = data.message || 'Ошибка бронирования.';
         messageDiv.className = 'error';
         if (res.status === 409) {
-          await loadSlots();
+          await initCalendar();
         }
       }
     } catch (err) {
-      console.error('Ошибка при бронировании:', err);
+      console.error(err);
       messageDiv.textContent = 'Ошибка сервера. Попробуйте ещё раз.';
       messageDiv.className = 'error';
     } finally {
@@ -165,5 +188,4 @@ if (submitBtn) {
   });
 }
 
-// Старт
-loadSlots();
+initCalendar();
