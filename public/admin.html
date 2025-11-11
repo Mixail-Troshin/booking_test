@@ -17,7 +17,8 @@
     body {
       margin: 0;
       min-height: 100vh;
-      background: var(--bg);
+      background: --bg;
+      background: radial-gradient(circle at top, #020817, #000000);
       color: var(--text);
       font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
       display: flex;
@@ -43,11 +44,15 @@
       backdrop-filter: blur(16px);
     }
     h1 {
-      font-size: 22px;
+      font-size: 20px;
       margin: 0 0 4px;
       font-weight: 600;
     }
-    .sub { font-size: 12px; color: var(--muted); margin: 0 0 10px; }
+    .sub {
+      font-size: 11px;
+      color: var(--muted);
+      margin: 0 0 10px;
+    }
     #login-row {
       display: flex;
       gap: 8px;
@@ -83,6 +88,7 @@
       color: #f97316;
       min-height: 14px;
     }
+    .ok { color:#22c55e; }
     .label {
       font-size: 10px;
       color: var(--muted);
@@ -101,7 +107,7 @@
     }
     .row {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-columns: repeat(2, minmax(0,1fr));
       gap: 6px;
     }
     .checkbox-row {
@@ -168,13 +174,12 @@
       font-size: 9px;
       color: var(--muted);
     }
-    .ok { color:#22c55e;}
   </style>
 </head>
 <body>
 <div class="wrap">
 
-  <!-- Левая: настройка расписания -->
+  <!-- Левая колонка: настройки расписания -->
   <div class="card">
     <h1>Настройки расписания</h1>
     <p class="sub">Укажи ключ, период и график — слоты пересоздадутся по этим правилам.</p>
@@ -185,8 +190,8 @@
       <div id="message"></div>
     </div>
 
-    <div id="schedule-form" style="opacity:0.65; pointer-events:none;">
-      <div class="label">Период (даты включительно)</div>
+    <div id="schedule-form" style="opacity:.4; pointer-events:none;">
+      <div class="label">Период (включительно)</div>
       <div class="row">
         <div>
           <div class="label">С даты</div>
@@ -219,14 +224,15 @@
       </div>
 
       <button onclick="applySchedule()" style="margin-top:8px;">Обновить расписание</button>
-      <div class="muted">Внимание: старые слоты будут удалены и заменены новыми.</div>
+      <div class="muted">Старые слоты будут удалены и заменены новыми.</div>
     </div>
   </div>
 
-  <!-- Правая: список слотов -->
+  <!-- Правая колонка: список слотов -->
   <div class="card">
-    <h1>Записи и свободные слоты</h1>
-    <p class="sub">После обновления расписания здесь будут все слоты. Для занятых — быстрые ссылки в мессенджеры.</p>
+    <h1>Записи и ссылки</h1>
+    <p class="sub">Слоты, клиенты, быстрые ссылки для связи и Telemost.</p>
+
     <table id="slots-table" style="display:none;">
       <thead>
       <tr>
@@ -262,6 +268,7 @@
     const hint = document.getElementById('hint');
 
     msg.textContent = '';
+    msg.className = '';
     table.style.display = 'none';
     body.innerHTML = '';
     hint.textContent = '';
@@ -281,16 +288,18 @@
       }
 
       enableScheduleForm();
-      msg.textContent = 'Ключ принят.'; msg.className = 'ok';
+      msg.textContent = 'Ключ принят.'; 
+      msg.className = 'ok';
 
       const slots = data.slots;
       if (!slots.length) {
-        hint.textContent = 'Слотов нет. Настрой расписание слева и нажми "Обновить расписание".';
+        hint.textContent = 'Слотов нет. Настрой расписание слева.';
         return;
       }
 
       slots.forEach(s => {
         const tr = document.createElement('tr');
+
         const status = s.booked
           ? '<span class="tag booked">Занят</span>'
           : '<span class="tag free">Свободен</span>';
@@ -304,15 +313,23 @@
           : '';
 
         let action = '';
+
         if (s.booked && s.phone) {
           const digits = (s.phone || '').replace(/\D/g, '');
-          const text = encodeURIComponent(`Здравствуйте, это по поводу вашей записи на ${s.time}.`);
+          const baseText = encodeURIComponent(
+            `Здравствуйте, это по поводу вашей записи на ${s.time}.`
+          );
           if (digits) {
-            action += `<a class="link-btn" href="https://wa.me/${digits}?text=${text}" target="_blank">WA</a>`;
+            action += `<a class="link-btn" href="https://wa.me/${digits}?text=${baseText}" target="_blank">WA</a>`;
           }
           if (s.contact_method === 'telegram') {
-            action += ` <a class="link-btn" href="https://t.me/share/url?url=&text=${text}" target="_blank">TG</a>`;
+            action += ` <a class="link-btn" href="https://t.me/share/url?url=&text=${baseText}" target="_blank">TG</a>`;
           }
+        }
+
+        if (s.meeting_url) {
+          action += (action ? ' ' : '') +
+            `<a class="link-btn" href="${s.meeting_url}" target="_blank">Telemost</a>`;
         }
 
         tr.innerHTML = `
@@ -327,7 +344,7 @@
       });
 
       table.style.display = 'table';
-      hint.textContent = 'Кнопки WA/TG откроют диалог с готовым текстом.';
+      hint.textContent = 'Кнопки WA/TG/Telemost открывают диалог или комнату.';
     } catch (err) {
       console.error(err);
       msg.textContent = 'Ошибка загрузки.';
@@ -336,8 +353,10 @@
 
   async function applySchedule() {
     const msg = document.getElementById('message');
+    const hint = document.getElementById('hint');
+
     if (!adminKey) {
-      msg.textContent = 'Сначала введи ключ и нажми "Обновить список".';
+      msg.textContent = 'Сначала введите ключ и нажмите "Обновить список".';
       return;
     }
 
@@ -349,7 +368,7 @@
     const weekdaysOnly = document.getElementById('weekdays-only').checked;
 
     if (!startDate || !endDate || !startTime || !endTime || !step) {
-      msg.textContent = 'Заполни все поля расписания.';
+      msg.textContent = 'Заполните все поля расписания.';
       return;
     }
 
@@ -372,7 +391,9 @@
         msg.textContent = data.message || 'Ошибка обновления расписания.';
         return;
       }
-      msg.textContent = 'Расписание обновлено.'; msg.className = 'ok';
+      msg.textContent = 'Расписание обновлено.'; 
+      msg.className = 'ok';
+      hint.textContent = '';
       await loadSlots();
     } catch (err) {
       console.error(err);
